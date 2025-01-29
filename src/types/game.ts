@@ -10,9 +10,11 @@ export interface Player {
 export interface Room {
   id: string;
   code: string;
-  status: "waiting" | "playing" | "finished";
+  status: "waiting" | "playing" | "round_end" | "finished";
   current_round: number;
   total_rounds: number;
+  round_time: number;
+  created_by: string;
   created_at: string;
   updated_at: string;
 }

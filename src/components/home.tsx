@@ -8,9 +8,12 @@ import {
   joinRoom,
   subscribeToRoom,
   subscribeToPlayers,
+  startGame,
+  updateGameSettings,
 } from "@/lib/game";
 import type { Room, Player } from "@/types/game";
 import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/lib/supabase";
 
 interface HomeProps {
   initialGameState?: "join" | "room";
@@ -28,6 +31,16 @@ const Home = ({ initialGameState = "join" }: HomeProps) => {
   const [currentRoom, setCurrentRoom] = React.useState<Room | null>(null);
   const [currentPlayer, setCurrentPlayer] = React.useState<Player | null>(null);
   const [players, setPlayers] = React.useState<Player[]>([]);
+  const [gameSettings, setGameSettings] = React.useState({
+    roundTime: 60,
+    totalRounds: 5,
+  });
+  const [currentRoundId, setCurrentRoundId] = React.useState<string | null>(null);
+
+  const isHost = React.useMemo(() => {
+    if (!currentRoom || !currentPlayer) return false;
+    return currentPlayer.id === currentRoom.created_by;
+  }, [currentRoom, currentPlayer]);
 
   // Handle room creation/joining after getting player name
   const handlePlayerName = async (playerName: string) => {
@@ -97,6 +110,73 @@ const Home = ({ initialGameState = "join" }: HomeProps) => {
     };
   }, [currentRoom?.id]);
 
+  const handleStartGame = async () => {
+    if (!currentRoom?.id) return;
+    
+    setIsLoading(true);
+    try {
+      const success = await startGame(currentRoom.id);
+      if (!success) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to start game. Please try again.",
+        });
+      }
+    } catch (error) {
+      console.error("Error starting game:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to start game. Please try again.",
+      });
+    }
+    setIsLoading(false);
+  };
+
+  const handleUpdateSettings = async (newSettings: typeof gameSettings) => {
+    if (!currentRoom) return;
+    
+    setIsLoading(true);
+    const success = await updateGameSettings(currentRoom.id, newSettings);
+    setIsLoading(false);
+
+    if (success) {
+      setGameSettings(newSettings);
+      toast({
+        title: "Settings updated",
+        description: "Game settings have been saved successfully.",
+      });
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update game settings.",
+      });
+    }
+  };
+
+  // Add effect to get current round ID when room updates
+  React.useEffect(() => {
+    if (!currentRoom?.id || currentRoom.status !== "playing") return;
+
+    const fetchCurrentRoundId = async () => {
+      const { data: round } = await supabase
+        .from("game_rounds")
+        .select("id")
+        .eq("room_id", currentRoom.id)
+        .eq("round_number", currentRoom.current_round)
+        .single();
+
+      if (round) {
+        console.log("Current round ID:", round.id);
+        setCurrentRoundId(round.id);
+      }
+    };
+
+    fetchCurrentRoundId();
+  }, [currentRoom?.id, currentRoom?.status, currentRoom?.current_round]);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -113,6 +193,10 @@ const Home = ({ initialGameState = "join" }: HomeProps) => {
         <GameRoom
           isLoading={isLoading}
           gameState={currentRoom?.status || "waiting"}
+          roomCode={currentRoom?.code}
+          isHost={isHost}
+          gameSettings={gameSettings}
+          onUpdateSettings={handleUpdateSettings}
           players={players.map((p) => ({
             id: p.id,
             name: p.name,
@@ -120,6 +204,10 @@ const Home = ({ initialGameState = "join" }: HomeProps) => {
             avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.avatar_seed}`,
             isCurrentPlayer: p.id === currentPlayer?.id,
           }))}
+          onStartGame={handleStartGame}
+          currentRoundId={currentRoundId}
+          currentPlayer={currentPlayer}
+          currentRoom={currentRoom}
         />
       )}
 
